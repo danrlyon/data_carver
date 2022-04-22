@@ -15,35 +15,21 @@
         to carve various file types. Your solution will be testing using a binary
         file with primarily jpg, png, and pdf file types.
 
-
-    TODO:
-        X- Take input args
-        X- Open File
-        X- Find JPG Header
-        X- Find JPG Footer
-        X- Write the JPG to a file
-            X- Into Folder titled with my last name
-        - Print the following:
-            - file type
-            - file size
-            - start and finish offsets
-        - Repeat for PNG
-        - Repeat for PDF
-        - Write the filenames and its hash to hashes.txt in same folder
-
 '''
 
 import os
 import sys
 import imghdr
-from itertools import islice
 from argparse import ArgumentParser
+from glob import glob
+from hashlib import md5
+import magic
 
 JPEG_SOF = [b'\xFF', b'\xD8', b'\xFF', b'\xE0']
 JPEG_EOF = [b'\xFF', b'\xD9']
-PNG_SOF = [b'\x89', b'\x50', b'\x4E', b'\x47', 
+PNG_SOF = [b'\x89', b'\x50', b'\x4E', b'\x47',
            b'\x0D', b'\x0A', b'\x1A', b'\x0A']
-'''Each chunk consists of four parts:
+'''PNG: Each chunk consists of four parts:
 Length
     A 4-byte unsigned integer giving the number of bytes in the chunk's data field.
     The length counts only the data field, not itself, the chunk type code, or the
@@ -70,7 +56,8 @@ PNG_IEND = [b'\x49', b'\x45', b'\x4E' ,b'\x44']
 # PDF
 ## 1.3, there will only be EOF at the actual EOF. But 1.5 will have 2
 ## EOF before the end of the document
-PDF_SOF = [b'\x25', b'\x50', b'\x44', b'\x46', b'\x2D']
+PDF13_SOF = [b'\x25', b'\x50', b'\x44', b'\x46', b'\x2D', b'\x31', b'\x2E', b'\x33']
+PDF15_SOF = [b'\x25', b'\x50', b'\x44', b'\x46', b'\x2D', b'\x31', b'\x2E', b'\x35']
 PDF_EOF = [b'\x0A', b'\x25', b'\x25', b'\x45', b'\x4F', b'\x46']
 
 OUTPUT_DIR = 'Allen'
@@ -102,12 +89,25 @@ def make_dir(out_dir):
 
 
 def test_image(input_image):
-    '''Discover the type of image file and if it is valid. 
+    '''Discover the type of image file and if it is valid.
        Return the type of file.
     '''
     file_type = imghdr.what(input_image)
     print(f"The image is a {file_type} file")
+    test_magic(input_image)
+    # Delete invalid images
+    if file_type is None:
+        print(f"File type {file_type} is not a valid image format.")
+        print(f"Deleting {input_image}.")
+        os.remove(input_image)
     return file_type
+
+
+def test_magic(input_file):
+    '''Test the magic number of the file.'''
+    file_info = magic.from_file(input_file)
+    print(f"File Info: {file_info}")
+    return file_info
 
 
 def scan_for_jpeg(binary_filename):
@@ -115,6 +115,7 @@ def scan_for_jpeg(binary_filename):
         4 byte sliding window and test if it matches the JPEG
         magic number
     '''
+    print("\nStart scanning for JPEG files...")
     files = list()
     sof_indices = list()
     eof_indices = list()
@@ -133,7 +134,7 @@ def scan_for_jpeg(binary_filename):
             # Just print some status so you can see stuff is happening
             if i % 10000000 == 0:
                 print(f"{i} bytes out of {file_size} processed")
-            
+
             # If you found the start of a file, keep building
             if len(current_file) > 0:
                 current_file = b''.join([current_file, buffer[-1]])
@@ -146,7 +147,7 @@ def scan_for_jpeg(binary_filename):
                 eof_indices.append(i)
                 current_file = b''
                 print(f"Found JPEG: EOF={i}, buffer={buffer}")
-            
+
             # Start building JPEG file
             if buffer == JPEG_SOF:
                 print(f"Found JPEG: SOF={i}, buffer={buffer}")
@@ -156,21 +157,23 @@ def scan_for_jpeg(binary_filename):
             # increment byte position
             i += 1
 
-        print(f"Found {len(files)} JPEG files.")
+        print(f"\nFound {len(files)} JPEG files.")
         for i, each_file in enumerate(files):
             filename = f"{OUTPUT_DIR}/jpeg_file_{i}.jpg"
             with open(filename, "wb") as out_file:
-                print(f"Write output file: {filename}")
+                print(f"\nWrite output file: {filename}")
                 out_file.write(each_file)
             file_type = test_image(filename)
-            print(f"Type of file: {file_type}")
-            print(f"File Size: {os.path.getsize(filename)} bytes")
-            print(f"Start Offset: {sof_indices[i]}")
-            print(f"End Offset: {eof_indices[i]}")
+            if file_type is not None:
+                print(f"Type of file: {file_type}")
+                print(f"File Size: {os.path.getsize(filename)} bytes")
+                print(f"Start Offset: {sof_indices[i]}")
+                print(f"End Offset: {eof_indices[i]}")
 
 
 def scan_for_png(binary_filename):
     '''Scan the file for PNGs'''
+    print("\nStart scanning for PNG files...")
     files = list()
     sof_indices = list()
     eof_indices = list()
@@ -189,7 +192,7 @@ def scan_for_png(binary_filename):
             # Just print some status so you can see stuff is happening
             if i % 10000000 == 0:
                 print(f"{i} bytes out of {file_size} processed")
-            
+
             # If you found the start of a file, keep building
             if len(current_file) > 0:
                 current_file = b''.join([current_file, buffer[-1]])
@@ -202,7 +205,7 @@ def scan_for_png(binary_filename):
                 eof_indices.append(i)
                 current_file = b''
                 print(f"Found PNG: EOF={i}, buffer={buffer}")
-            
+
             # Start building PNG file
             if buffer == PNG_SOF:
                 print(f"Found PNG: SOF={i}, buffer={buffer}")
@@ -212,17 +215,95 @@ def scan_for_png(binary_filename):
             # increment byte position
             i += 1
 
-        print(f"Found {len(files)} PNG files.")
+        print(f"\nFound {len(files)} PNG files.")
         for i, each_file in enumerate(files):
             filename = f"{OUTPUT_DIR}/png_file_{i}.png"
             with open(filename, "wb") as out_file:
-                print(f"Write output file: {filename}")
+                print(f"\nWrite output file: {filename}")
                 out_file.write(each_file)
             file_type = test_image(filename)
-            print(f"Type of file: {file_type}")
+            if file_type is not None:
+                print(f"Type of file: {file_type}")
+                print(f"File Size: {os.path.getsize(filename)} bytes")
+                print(f"Start Offset: {sof_indices[i]}")
+                print(f"End Offset: {eof_indices[i]}")
+
+
+def scan_for_pdf(binary_filename):
+    '''Scan the file for PDFs'''
+    print("\nStart scanning for PDF files...")
+    files = list()
+    sof_indices = list()
+    eof_indices = list()
+    current_file = b''
+    pdf13 = True
+    with open(binary_filename, 'rb') as bin_file:
+        file_size = os.path.getsize(binary_filename)
+        window_size = len(PDF13_SOF)
+        buffer = [b'\x00' for _ in range(window_size)]
+        i = 0
+        while i <= file_size - window_size:
+            # Shift the buffer window and add the next byte to the end
+            for j in range(window_size - 1):
+                buffer[j] = buffer[j+1]
+            buffer[-1] = bin_file.read(1)
+
+            # Just print some status so you can see stuff is happening
+            if i % 10000000 == 0:
+                print(f"{i} bytes out of {file_size} processed")
+
+            # If you found the start of a file, keep building
+            if len(current_file) > 0:
+                current_file = b''.join([current_file, buffer[-1]])
+
+            # If you find the EOF indicator, finish the file if
+            # it has been started. Store data in list of files.
+            if (buffer[window_size - len(PDF_EOF):] == PDF_EOF and
+                    len(current_file) > 0):
+                if pdf13:
+                    files.append(current_file)
+                    eof_indices.append(i)
+                    current_file = b''
+                    print(f"Found PDF: EOF={i}, buffer={buffer}")
+                else:
+                    pdf13 = True
+
+            # Start building PDF file
+            if buffer == PDF13_SOF:
+                print(f"Found PDF v1.3: SOF={i}, buffer={buffer}")
+                current_file = b''.join(buffer)
+                sof_indices.append(i)
+            
+            # Start building PDF file
+            if buffer == PDF15_SOF:
+                print(f"Found PDF v1.5: SOF={i}, buffer={buffer}")
+                current_file = b''.join(buffer)
+                sof_indices.append(i)
+                pdf13 = False
+
+            # increment byte position
+            i += 1
+
+        print(f"\nFound {len(files)} PDF files.")
+        for i, each_file in enumerate(files):
+            filename = f"{OUTPUT_DIR}/pdf_file_{i}.pdf"
+            with open(filename, "wb") as out_file:
+                print(f"\nWrite output file: {filename}")
+                out_file.write(each_file)
+            file_info = test_magic(filename)
+            print(f"Type of file: {file_info}")
             print(f"File Size: {os.path.getsize(filename)} bytes")
             print(f"Start Offset: {sof_indices[i]}")
             print(f"End Offset: {eof_indices[i]}")
+
+
+def hash_file(input_file):
+    '''Take input file and return hashed hex string'''
+    print(f"MD5 Hashing {input_file}.")
+    with open(input_file, 'rb') as in_f:
+        hash_hex = md5(in_f.read()).hexdigest()
+        print(f"Hash hex found: {hash_hex}")
+        return hash_hex
 
 
 def main():
@@ -237,9 +318,16 @@ def main():
     make_dir(out_dir)
 
     print(f"Try to open {args.file}")
-    # scan_for_jpeg(args.file)
+    scan_for_jpeg(args.file)
     scan_for_png(args.file)
+    scan_for_pdf(args.file)
 
+    print(f"\nGenerate MD5 hashes of the files in {OUTPUT_DIR}/.")
+    with open(f'{OUTPUT_DIR}/hashes.txt', 'wt', encoding='ascii') as f:
+        f.write("Source File -> MD5 Hash\n")
+        for out_file in glob(f"{OUTPUT_DIR}/*"):
+            if "txt" not in out_file:
+                f.write(f"{out_file} -> {hash_file(out_file)}\n")
 
 
 if __name__ == "__main__":
