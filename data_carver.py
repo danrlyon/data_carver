@@ -21,15 +21,15 @@
         X- Open File
         X- Find JPG Header
         X- Find JPG Footer
-        - Write the JPG to a file
-            - Into Folder titled with my last name
-            - Write the filenames and its hash to hashes.txt in same folder
+        X- Write the JPG to a file
+            X- Into Folder titled with my last name
         - Print the following:
             - file type
             - file size
             - start and finish offsets
         - Repeat for PNG
         - Repeat for PDF
+        - Write the filenames and its hash to hashes.txt in same folder
 
 '''
 
@@ -40,8 +40,9 @@ from itertools import islice
 from argparse import ArgumentParser
 
 JPEG_SOF = [b'\xFF', b'\xD8', b'\xFF', b'\xE0']
-JPEG_EOF = [b'\xDD', b'\xD9']
-PNG_SOF = b'\x89\x50\x4E\x47\x0D\x0A\x1A\x0A'
+JPEG_EOF = [b'\xFF', b'\xD9']
+PNG_SOF = [b'\x89', b'\x50', b'\x4E', b'\x47', 
+           b'\x0D', b'\x0A', b'\x1A', b'\x0A']
 '''Each chunk consists of four parts:
 Length
     A 4-byte unsigned integer giving the number of bytes in the chunk's data field.
@@ -65,7 +66,7 @@ CRC
     the length field. The CRC is always present, even for chunks containing no data.
     See CRC algorithm.
 '''
-PNG_IEND = b'\x49\x45\x4E\x44'
+PNG_IEND = [b'\x49', b'\x45', b'\x4E' ,b'\x44']
 PDF_SOF = b'\x25\x50\x44\x46\x2D'
 
 OUTPUT_DIR = 'Allen'
@@ -97,9 +98,12 @@ def make_dir(out_dir):
 
 
 def test_image(input_image):
-    '''Discover the type of image file and if it is valid.'''
+    '''Discover the type of image file and if it is valid. 
+       Return the type of file.
+    '''
     file_type = imghdr.what(input_image)
     print(f"The image is a {file_type} file")
+    return file_type
 
 
 def scan_for_jpeg(binary_filename):
@@ -107,26 +111,114 @@ def scan_for_jpeg(binary_filename):
         4 byte sliding window and test if it matches the JPEG
         magic number
     '''
+    files = list()
+    sof_indices = list()
+    eof_indices = list()
+    current_file = b''
     with open(binary_filename, 'rb') as bin_file:
         file_size = os.path.getsize(binary_filename)
         window_size = len(JPEG_SOF)
         buffer = [b'\x00' for _ in range(window_size)]
-        print(f"Buffer Starting Point: {buffer}")
-        print(f"File is {file_size} bytes.")
         i = 0
         while i <= file_size - window_size:
+            # Shift the buffer window and add the next byte to the end
             for j in range(window_size - 1):
                 buffer[j] = buffer[j+1]
-                # print(buffer)
             buffer[-1] = bin_file.read(1)
-            # print(f"Current Buffer: {buffer}")
+
+            # Just print some status so you can see stuff is happening
             if i % 10000000 == 0:
                 print(f"{i} bytes out of {file_size} processed")
-            i += 1
+            
+            # If you found the start of a file, keep building
+            if len(current_file) > 0:
+                current_file = b''.join([current_file, buffer[-1]])
+
+            # If you find the EOF indicator, finish the file if
+            # it has been started. Store data in list of files.
+            if (buffer[window_size - len(JPEG_EOF):] == JPEG_EOF and
+                    len(current_file) > 0):
+                files.append(current_file)
+                eof_indices.append(i)
+                current_file = b''
+                print(f"Found JPEG: EOF={i}, buffer={buffer}")
+            
+            # Start building JPEG file
             if buffer == JPEG_SOF:
                 print(f"Found JPEG: SOF={i}, buffer={buffer}")
-            if buffer[window_size - len(JPEG_EOF):] == JPEG_EOF:
-                print(f"Found JPEG: EOF={i}, buffer={buffer}")
+                current_file = b''.join(buffer)
+                sof_indices.append(i)
+
+            # increment byte position
+            i += 1
+
+        print(f"Found {len(files)} JPEG files.")
+        for i, each_file in enumerate(files):
+            filename = f"{OUTPUT_DIR}/jpeg_file_{i}.jpg"
+            with open(filename, "wb") as out_file:
+                print(f"Write output file: {filename}")
+                out_file.write(each_file)
+            file_type = test_image(filename)
+            print(f"Type of file: {file_type}")
+            print(f"File Size: {os.path.getsize(filename)} bytes")
+            print(f"Start Offset: {sof_indices[i]}")
+            print(f"End Offset: {eof_indices[i]}")
+
+
+def scan_for_png(binary_filename):
+    '''Scan the file for PNGs'''
+    files = list()
+    sof_indices = list()
+    eof_indices = list()
+    current_file = b''
+    with open(binary_filename, 'rb') as bin_file:
+        file_size = os.path.getsize(binary_filename)
+        window_size = len(PNG_SOF)
+        buffer = [b'\x00' for _ in range(window_size)]
+        i = 0
+        while i <= file_size - window_size:
+            # Shift the buffer window and add the next byte to the end
+            for j in range(window_size - 1):
+                buffer[j] = buffer[j+1]
+            buffer[-1] = bin_file.read(1)
+
+            # Just print some status so you can see stuff is happening
+            if i % 10000000 == 0:
+                print(f"{i} bytes out of {file_size} processed")
+            
+            # If you found the start of a file, keep building
+            if len(current_file) > 0:
+                current_file = b''.join([current_file, buffer[-1]])
+
+            # If you find the EOF indicator, finish the file if
+            # it has been started. Store data in list of files.
+            if (buffer[window_size - len(PNG_IEND):] == PNG_IEND and
+                    len(current_file) > 0):
+                files.append(current_file)
+                eof_indices.append(i)
+                current_file = b''
+                print(f"Found PNG: EOF={i}, buffer={buffer}")
+            
+            # Start building PNG file
+            if buffer == PNG_SOF:
+                print(f"Found PNG: SOF={i}, buffer={buffer}")
+                current_file = b''.join(buffer)
+                sof_indices.append(i)
+
+            # increment byte position
+            i += 1
+
+        print(f"Found {len(files)} PNG files.")
+        for i, each_file in enumerate(files):
+            filename = f"{OUTPUT_DIR}/png_file_{i}.png"
+            with open(filename, "wb") as out_file:
+                print(f"Write output file: {filename}")
+                out_file.write(each_file)
+            file_type = test_image(filename)
+            print(f"Type of file: {file_type}")
+            print(f"File Size: {os.path.getsize(filename)} bytes")
+            print(f"Start Offset: {sof_indices[i]}")
+            print(f"End Offset: {eof_indices[i]}")
 
 
 def main():
@@ -141,7 +233,8 @@ def main():
     make_dir(out_dir)
 
     print(f"Try to open {args.file}")
-    scan_for_jpeg(args.file)
+    # scan_for_jpeg(args.file)
+    scan_for_png(args.file)
 
 
 
