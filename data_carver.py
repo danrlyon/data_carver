@@ -3,7 +3,7 @@
     Requirements:
         Write a Python program to carve evidence from a binary file.
             - There are no import library restrictions
-            - Your program must accept a binary file as a command-line argument (test 
+            - Your program must accept a binary file as a command-line argument (test
                 using a binary file in the same folder as your python program)
             - Your program must write carved files to a folder titled with your last name
             - Your program must write the MD5 hash of each carved file to a file names
@@ -11,15 +11,16 @@
             - Your program must output to screen some basic file information such as
                 file type found, file size, and location offset for each carved file
 
-        Recommend you start by carving one file type, then expand your solution to carve various file types.
-        Your solution will be testing using a binary file with primarily jpg, png, and pdf file types.
+        Recommend you start by carving one file type, then expand your solution
+        to carve various file types. Your solution will be testing using a binary
+        file with primarily jpg, png, and pdf file types.
 
 
     TODO:
-        - Take input args
-        - Open File
-        - Find JPG Header
-        - Find JPG Footer
+        X- Take input args
+        X- Open File
+        X- Find JPG Header
+        X- Find JPG Footer
         - Write the JPG to a file
             - Into Folder titled with my last name
             - Write the filenames and its hash to hashes.txt in same folder
@@ -32,11 +33,14 @@
 
 '''
 
-import binascii, re, os, sys
+import os
+import sys
+import imghdr
+from itertools import islice
 from argparse import ArgumentParser
 
-JPEG_SOF = b'\xFF\xD8\xFF\xE0'
-JPEG_EOF = b'\xDD\xD9'
+JPEG_SOF = [b'\xFF', b'\xD8', b'\xFF', b'\xE0']
+JPEG_EOF = [b'\xDD', b'\xD9']
 PNG_SOF = b'\x89\x50\x4E\x47\x0D\x0A\x1A\x0A'
 '''Each chunk consists of four parts:
 Length
@@ -92,6 +96,39 @@ def make_dir(out_dir):
     print(f"{out_dir} already exists")
 
 
+def test_image(input_image):
+    '''Discover the type of image file and if it is valid.'''
+    file_type = imghdr.what(input_image)
+    print(f"The image is a {file_type} file")
+
+
+def scan_for_jpeg(binary_filename):
+    '''Scan the whole binary file to search for JPEG files. Take a
+        4 byte sliding window and test if it matches the JPEG
+        magic number
+    '''
+    with open(binary_filename, 'rb') as bin_file:
+        file_size = os.path.getsize(binary_filename)
+        window_size = len(JPEG_SOF)
+        buffer = [b'\x00' for _ in range(window_size)]
+        print(f"Buffer Starting Point: {buffer}")
+        print(f"File is {file_size} bytes.")
+        i = 0
+        while i <= file_size - window_size:
+            for j in range(window_size - 1):
+                buffer[j] = buffer[j+1]
+                # print(buffer)
+            buffer[-1] = bin_file.read(1)
+            # print(f"Current Buffer: {buffer}")
+            if i % 10000000 == 0:
+                print(f"{i} bytes out of {file_size} processed")
+            i += 1
+            if buffer == JPEG_SOF:
+                print(f"Found JPEG: SOF={i}, buffer={buffer}")
+            if buffer[window_size - len(JPEG_EOF):] == JPEG_EOF:
+                print(f"Found JPEG: EOF={i}, buffer={buffer}")
+
+
 def main():
     '''Main Function'''
     print("Starting the data carving software...")
@@ -103,7 +140,9 @@ def main():
     print(f"Check if directory {out_dir} exists.")
     make_dir(out_dir)
 
-    print(f"Try to open {args.file}...")    
+    print(f"Try to open {args.file}")
+    scan_for_jpeg(args.file)
+
 
 
 if __name__ == "__main__":
