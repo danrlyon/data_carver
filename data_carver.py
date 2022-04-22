@@ -67,7 +67,11 @@ CRC
     See CRC algorithm.
 '''
 PNG_IEND = [b'\x49', b'\x45', b'\x4E' ,b'\x44']
-PDF_SOF = b'\x25\x50\x44\x46\x2D'
+# PDF
+## 1.3, there will only be EOF at the actual EOF. But 1.5 will have 2
+## EOF before the end of the document
+PDF_SOF = [b'\x25', b'\x50', b'\x44', b'\x46', b'\x2D']
+PDF_EOF = [b'\x0A', b'\x25', b'\x25', b'\x45', b'\x4F', b'\x46']
 
 OUTPUT_DIR = 'Allen'
 
